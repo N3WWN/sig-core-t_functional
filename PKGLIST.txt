@@ -1,0 +1,4 @@
+sed
+glibc
+iptables-libs
+kernel
