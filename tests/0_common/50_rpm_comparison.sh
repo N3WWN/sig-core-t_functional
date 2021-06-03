@@ -6,6 +6,10 @@ t_Log "Running $0 - RPM comparison test (PoC)"
 
 t_InstallPackage wget sed diffutils yum-utils
 
+rpm --import https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-rockyofficial
+rpm --import https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-rockytesting
+rpm --import http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-Official
+
 # Set any necessary or desired wget options (default is empty)
 WGETOPTS=""
  
@@ -14,8 +18,15 @@ WGETOPTS="-e use_proxy=yes -e http_proxy=10.0.2.2:3128 -e https_proxy=10.0.2.2:3
 
 # Upstream source repo that contains the binary RPMs
 SRCREPO='http://mirror.centos.org/centos/8/BaseOS/x86_64/os/'
+#SRCREPO='http://mirror.centos.org/centos/8/AppStream/x86_64/os/'
 # The Rocky Linux repo that contains the binary RPMs
-PUTREPO='http://rocky.lowend.ninja/RockyDevel/BaseOS_final/'
+#PUTREPO='http://rocky.lowend.ninja/RockyDevel/BaseOS_final/'
+PUTREPO='https://dl.rockylinux.org/pub/rocky/8.3/BaseOS/x86_64/os/'
+#PUTREPO='https://dl.rockylinux.org/pub/rocky/8.3/AppStream/x86_64/os/'
+
+# Modify repo protos to allow package caching
+SRCREPO=${SRCREPO/https:/http:}
+PUTREPO=${PUTREPO/https:/http:}
 
 # Manually build the list of packages to compare
 #PKGLIST=('sed')
@@ -24,7 +35,8 @@ PUTREPO='http://rocky.lowend.ninja/RockyDevel/BaseOS_final/'
 #PKGLIST+=('kernel')
 
 # Build list of packages to compare by reading from PKGLIST.txt (1 pkg per line), located in the current working directory
-PKGLIST=( $(cat PKGLIST.txt) )
+PKGLIST=( $(cat PKGLIST_BaseOS.txt) )
+#PKGLIST=( $(cat PKGLIST_AppStream.txt) )
 
 [ "${#PKGLIST[@]}" == 0 ] && { t_Log "FAIL: package list is empty"; exit $FAIL; }
 
@@ -73,6 +85,23 @@ do
 	rpm -qp --queryformat="$QF" /tmp/src.rpm > /tmp/src.rpm.tags
 	rpm -qp --queryformat="$QF" /tmp/put.rpm > /tmp/put.rpm.tags
 
+	# Sort the filerequire= tag
+	cp -a /tmp/src.rpm.tags /tmp/src.rpm.tags.bak
+	cat /tmp/src.rpm.tags | while read tagline
+	do
+		[[ $tagline =~ ^filerequire= ]] && echo "filerequire=$(echo $tagline | awk -F'[a-zA-Z]=' '{print $2}' | sed -e 's/ \([a-zA-Z]\)/\n\1/g' | sort | paste -sd " " -)"
+		! [[ $tagline =~ ^filerequire= ]] && echo $tagline
+	done > /tmp/src.rpm.tags.FR
+	mv /tmp/src.rpm.tags.FR /tmp/src.rpm.tags
+
+	cp -a /tmp/put.rpm.tags /tmp/put.rpm.tags.bak
+	cat /tmp/put.rpm.tags | while read tagline
+	do
+		[[ $tagline =~ ^filerequire= ]] && echo "filerequire=$(echo $tagline | awk -F'[a-zA-Z]=' '{print $2}' | sed -e 's/ \([a-zA-Z]\)/\n\1/g' | sort | paste -sd " " -)"
+		! [[ $tagline =~ ^filerequire= ]] && echo $tagline
+	done > /tmp/put.rpm.tags.FR
+	mv /tmp/put.rpm.tags.FR /tmp/put.rpm.tags
+
 	# Verify that VENDOR and PACKAGER tags are present (were missing during mock builds)
 	rpm -qp --queryformat="vendor=%{VENDOR}\npackager=%{PACKAGER}\n" /tmp/put.rpm | grep -q "(none)" && { t_Log "WARN: Rocky Linux RPM missing VENDOR and/or PACKAGER tags"; }
 
@@ -92,7 +121,8 @@ do
 
 	# If any compares showed a difference, our last iteration of this loop will have a non-zero exist status, 
 	# triggering t_CheckExitStatus to fail the test
-	[ $PASS != 1 ] && false
+	#[ $PASS == 0 ] && false
+	#[ $PASS == 1 ] && true
 done
 
 # Check for a 0 exit status
